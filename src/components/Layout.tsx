@@ -1,3 +1,7 @@
+import { useEffect, useState } from "react";
+import { useNavigate } from "react-router-dom";
+import { supabase } from "@/integrations/supabase/client";
+import { Session, User } from "@supabase/supabase-js";
 import { Shield, LogOut } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Link, useLocation } from "react-router-dom";
@@ -7,13 +11,65 @@ interface LayoutProps {
 }
 
 const Layout = ({ children }: LayoutProps) => {
+  const navigate = useNavigate();
   const location = useLocation();
+  const [user, setUser] = useState<User | null>(null);
+  const [session, setSession] = useState<Session | null>(null);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    // Set up auth state listener FIRST
+    const { data: { subscription } } = supabase.auth.onAuthStateChange(
+      (event, session) => {
+        setSession(session);
+        setUser(session?.user ?? null);
+        setLoading(false);
+      }
+    );
+
+    // THEN check for existing session
+    supabase.auth.getSession().then(({ data: { session } }) => {
+      setSession(session);
+      setUser(session?.user ?? null);
+      setLoading(false);
+    });
+
+    return () => subscription.unsubscribe();
+  }, []);
+
+  // Redirect to auth if not logged in
+  useEffect(() => {
+    if (!loading && !user && location.pathname !== "/auth") {
+      navigate("/auth");
+    }
+  }, [user, loading, location.pathname, navigate]);
+
+  const handleLogout = async () => {
+    await supabase.auth.signOut();
+    navigate("/auth");
+  };
 
   const navItems = [
     { path: "/", label: "Dashboard", icon: "📊" },
     { path: "/logs", label: "Logs", icon: "📋" },
     { path: "/settings", label: "Settings", icon: "⚙️" },
   ];
+
+  // Don't show layout on auth page
+  if (location.pathname === "/auth") {
+    return <>{children}</>;
+  }
+
+  if (loading) {
+    return (
+      <div className="min-h-screen bg-background flex items-center justify-center">
+        <div className="text-center">
+          <Shield className="w-12 h-12 text-primary mx-auto mb-4 animate-pulse" />
+          <p className="text-muted-foreground">Loading...</p>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="min-h-screen bg-background">
@@ -50,8 +106,10 @@ const Layout = ({ children }: LayoutProps) => {
 
             {/* User section */}
             <div className="flex items-center gap-4">
-              <span className="text-muted-foreground">Welcome, <span className="text-foreground font-medium">CNethuka</span></span>
-              <Button variant="default" size="sm" className="gap-2">
+              <span className="text-muted-foreground">
+                Welcome, <span className="text-foreground font-medium">{user?.email?.split("@")[0] || "User"}</span>
+              </span>
+              <Button variant="default" size="sm" className="gap-2" onClick={handleLogout}>
                 <LogOut className="w-4 h-4" />
                 Logout
               </Button>
